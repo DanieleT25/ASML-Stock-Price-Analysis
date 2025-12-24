@@ -1,0 +1,35 @@
+project:
+  type: book
+  output-dir: _output
+
+book:
+  title: "ASML Stock Price Analysis"
+  subtitle: "Project of Time Series Analysis for Economic and Financial Data"
+  author: "Daniele Tambone"
+  date: last-modified
+  chapters:
+    - index.qmd
+    - qmd/01-price-analysis.qmd
+    - qmd/02-return-analysis.qmd
+    - qmd/03-volatility-analysis.qmd
+    - qmd/references.qmd
+
+bibliography: references.bib
+
+format:
+  html:
+    theme: cosmo
+    toc: true
+    code-fold: true
+    number-sections: true
+  pdf:
+    documentclass: scrreport
+    toc: true
+    number-sections: true
+    colorlinks: true
+
+
+execute:
+  freeze: auto
+#   warning: false
+#   message: false

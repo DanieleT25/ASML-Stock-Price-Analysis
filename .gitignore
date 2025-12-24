@@ -1,0 +1,12 @@
+# --- Quarto ---
+/.quarto/
+**/*.quarto_ipynb
+
+# --- R and RStudio ---
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user
+
+# --- macOS ---
+.DS_Store

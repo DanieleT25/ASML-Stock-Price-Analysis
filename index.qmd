@@ -1,0 +1,3 @@
+# Preface {.unnumbered}
+
+This project aims to conduct an in-depth time series analysis of the stock prices for **ASML Holding NV (ASML)**, a global leader in the manufacturing of lithography systems for the semiconductor industry. The primary objective is to explore the dynamics of historical prices, volatility, and underlying trends of the stock.
