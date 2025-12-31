@@ -2,6 +2,11 @@
 /.quarto/
 **/*.quarto_ipynb
 
+# --- generated files ---
+/_output/
+*_files/
+*.html
+
 # --- R and RStudio ---
 .Rhistory
 .RData

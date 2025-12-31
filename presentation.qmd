@@ -1,0 +1,320 @@
+---
+title: "ASML Stock Price Analysis"
+subtitle: "Project of Time Series Analysis for Economic and Financial Data"
+author: "Daniele Tambone"
+date: last-modified
+format: 
+  revealjs:
+    theme: simple
+    transition: slide
+    slide-number: true
+    preview-links: true
+    logo: "https://images.squarespace-cdn.com/content/v1/60056c48dfad4a3649200fc0/1611077270135-4EXXT2EB9JJS30OW6ERW/unict-logo.png"
+    footer: "[View Full Report](https://danielet25.github.io/ASML-Stock-Price-Analysis/)"
+    embed-resources: true
+execute:
+  echo: false
+  warning: false
+  fig-width: 6
+  fig-height: 4
+---
+
+```{r}
+#| label: setup
+#| include: false
+
+source(here::here("_setup.R"))
+asml <- readRDS(here::here("data", "asml_data.rds"))
+
+log_ret_vec <- diff(log(asml$ASML.Adjusted))
+log_ret_vec <- log_ret_vec[is.finite(log_ret_vec)]
+log_returns <- data.frame(Date = asml$Date[-1], LogReturns = as.numeric(log_ret_vec))
+```
+
+# Introduction
+
+## Project Overview {.smaller}
+
+::: {.panel-tabset}
+
+### Details
+- **Objective**: Time series analysis of ASML Holding NV's Adjusted Closing Prices
+- **Data Source**: [Yahoo Finance](https://finance.yahoo.com/quote/ASML/)
+- **Period**:
+    - from: 2000-01-01
+    - to: 2025-12-01.
+
+### Dataframe
+
+::: {style="font-size: 0.6em;"}
+
+```{r}
+#| label: show-table-data
+
+datatable(
+    tail(asml, 30),
+    rownames = FALSE,
+    options = list(
+        scrollY = "350px",
+        scrollCollapse = TRUE,
+        paging = FALSE,
+        dom = "t",
+        order = list(list(0, 'desc'))
+    )
+) %>% 
+  formatRound(
+    columns = c("ASML.Open", "ASML.High", "ASML.Low", "ASML.Close", "ASML.Adjusted"), 
+    digits = 2
+  )
+```
+
+:::
+
+:::
+
+# EDA
+
+## Adjusted Closing Prices {.smaller}
+
+::: {.columns}
+
+::: {.column width="65%"}
+
+```{r}
+#| label: plot-prices
+#| echo: false
+#| fig-width: 16
+#| fig-height: 6
+#| out-width: "100%"
+
+fig_asml <- plot_ly(data = asml, x = ~Date, y = ~ASML.Adjusted, 
+  type = 'scatter', mode = 'lines', name = 'ASML Adjusted',
+  line = list(color = 'darkblue', width = 1.5)
+) %>% layout(
+  title = list(text = "ASML Stock Price Evolution", y = 0.98),
+  xaxis = list(
+    title = "Date",
+    rangeslider = list(visible = TRUE)
+  ),
+  yaxis = list(title = "Adjusted price", fixedrange = FALSE),
+  autosize = FALSE,
+  width = 650,
+  height = 550,
+  margin = list(l = 50, r = 20, b = 40, t = 30, pad = 4)
+)
+
+fig_asml
+```
+
+:::
+
+::: {.column width="35%"}
+
+**Key Observations:**
+
+::: {.incremental}
+
+* The series is clearly **non-stationary**.
+* Visible upward trend, especially post-2017.
+* Variance increases with price level.
+:::
+
+:::
+
+:::
+
+## Log-Returns Visualization {.smaller}
+
+```{r}
+#| label: plot-log-returns
+#| echo: false
+#| fig-width: 16
+#| fig-height: 6
+#| out-width: "100%"
+
+fig_log <- plot_ly(data = log_returns, x = ~Date, y = ~LogReturns, type = 'scatter',
+    mode = 'lines', name = 'Log Returns', line = list(color = 'darkred', width = 1))
+
+fig_log <- layout(
+  fig_log,
+  title = "ASML Log-Returns",
+  xaxis = list(title = "Date"),
+  yaxis = list(title = "Log Return"),
+  shapes = list(
+    list(
+      type = "line",
+      x0 = min(log_returns$Date),
+      x1 = max(log_returns$Date),
+      y0 = 0, 
+      y1 = 0,
+      line = list(color = "black", width = 1)
+    )
+  ),
+  autosize = FALSE,
+  width = 1000,
+  height = 550,
+  margin = list(l = 50, r = 20, b = 40, t = 30, pad = 4)
+)
+
+fig_log
+```
+
+
+## Graphical representation {.smaller}
+
+::: {.panel-tabset}
+
+### Histogram
+
+```{r}
+#| label: dist-plot
+#| echo: false
+#| fig-width: 16
+#| fig-height: 6
+#| out-width: "100%"
+
+mu_ret <- mean(log_returns$LogReturns)
+sd_ret <- sd(log_returns$LogReturns)
+
+t_fit_fGarch <- stdFit(log_returns$LogReturns * 100)
+t_params <- t_fit_fGarch$par
+
+fig_dist <- plot_ly(data = log_returns, x = ~LogReturns,
+  type = "histogram", name = "Log Returns", histnorm = "probability density",
+  marker = list(color = "lightgray", line = list(color = "gray", width = 1)),
+  opacity = 0.7)
+
+x_seq <- seq(min(log_returns$LogReturns), max(log_returns$LogReturns), length.out = 500)
+
+y_norm <- dnorm(x_seq, mean = mu_ret, sd = sd_ret)
+y_t <- dstd(
+  x_seq,
+  mean = t_params["mean"]/100,
+  sd = t_params["sd"]/100,
+  nu = t_params["nu"]
+)
+
+fig_dist <- fig_dist %>%
+  add_lines(
+    x = x_seq,
+    y = y_norm,
+    name = "Normal Distribution",
+    line = list(color = "#E74C3C", width = 2, dash = "dash"),
+    inherit = FALSE
+  ) %>% 
+  
+  add_lines(
+    x = x_seq,
+    y = y_t,
+    name = "Student-t",
+    line = list(color = "#2E86C1", width = 2),
+    inherit = FALSE
+  ) %>% 
+  
+  layout(
+    title = "Distribution of ASML Log-Returns",
+    xaxis = list(title = "Log Return"),
+    yaxis = list(title = "Density"),
+    legend = list(x = 0.8, y = 0.9),
+    hovermode = "x unified",
+    autosize = FALSE,
+    width = 1000,
+    height = 500,
+    margin = list(l = 50, r = 20, b = 40, t = 30, pad = 4)
+  )
+
+fig_dist
+```
+
+### Q-Q plot
+
+```{r}
+#| label: dqq-plot
+#| echo: false
+#| fig-width: 16
+#| fig-height: 6
+#| out-width: "100%"
+
+vec_ret <- log_returns$LogReturns
+
+qq_vals <- qqnorm(vec_ret, plot.it = FALSE)
+qq_data <- data.frame(
+  Theoretical = qq_vals$x,
+  Sample = qq_vals$y
+)
+
+y <- quantile(vec_ret, c(0.25, 0.75), names = FALSE)
+x <- qnorm(c(0.25, 0.75))
+slope <- diff(y)/diff(x)
+int <- y[1L] - slope * x[1L]
+
+fig_qq <- plot_ly(data = qq_data, x = ~Theoretical, y = ~Sample, type = 'scatter',
+  mode = 'markers', marker = list(size = 3, color = '#2E86C1', opacity = 0.6),
+  name = "Returns")
+
+fig_qq <- fig_qq %>%
+    add_lines(
+      x = ~Theoretical,
+      y = ~Theoretical * slope + int, 
+      line = list(color = "#E74C3C", width = 2, dash = "dash"), 
+      name = "Normal Reference",
+      inherit = FALSE
+    ) %>%
+    
+    layout(
+      title = "Q-Q Plot: Normal vs Empirical",
+      xaxis = list(title = "Theoretical Quantiles (Normal)"),
+      yaxis = list(title = "Sample Quantiles (ASML)"),
+      autosize = FALSE,
+      width = 1000,
+      height = 500,
+      margin = list(l = 50, r = 20, b = 40, t = 30, pad = 4)
+    )
+
+fig_qq
+```
+
+:::
+
+## Synthetic indicators {.smaller}
+
+```{r}
+#| label: calc-stats
+
+desc_stats <- data.frame(
+    Metric = c("Mean", "Std. Dev.", "Skewness", "Kurtosis"),
+    Value = c(
+        mean(log_returns$LogReturns),
+        sd(log_returns$LogReturns),
+        skewness(log_returns$LogReturns),
+        kurtosis(log_returns$LogReturns)
+    )
+)
+
+datatable(
+    desc_stats, 
+    options = list(dom = 't', paging = FALSE), 
+    rownames = FALSE
+) %>% formatRound('Value', digits = 5)
+```
+
+## Test of normality {.smaller}
+
+```{r}
+#| label: normality-test
+
+jb_test <- jarque.bera.test(log_returns$LogReturns)
+
+jb_res <- data.frame(
+    Test = "Jarque-Bera",
+    Statistic = round(jb_test$statistic, 2),
+    P_Value = ifelse(jb_test$p.value < 0.001, "< 0.001", round(jb_test$p.value, 4)),
+    Result = ifelse(jb_test$p.value < 0.05, "Reject H0", "Fail to Reject H0")
+)
+
+datatable(jb_res, options = list(dom = 't'), rownames = FALSE)
+```
+
+# Returns Analysis
+
+# Volatility Analysis

@@ -1,3 +1,53 @@
+::: {.d-flex .gap-2 .justify-content-start .mb-4}
+
+<a href="https://github.com/DanieleT25/ASML-Stock-Price-Analysis" target="_blank" class="btn btn-outline-secondary btn-sm" role="button">
+  <i class="bi bi-github"></i> GitHub Repository
+</a>
+
+<a href="https://danielet25.github.io/ASML-Stock-Price-Analysis/presentation.html" target="_blank" class="btn btn-outline-primary btn-sm" role="button">
+  <i class="bi bi-easel"></i> View Slides
+</a>
+
+<a href="https://danielet25.github.io/ASML-Stock-Price-Analysis/ASML-Stock-Price-Analysis.pdf" target="_blank" class="btn btn-outline-danger btn-sm" role="button">
+  <i class="bi bi-file-earmark-pdf"></i> Download PDF
+</a>
+
+:::
+
 # Preface {.unnumbered}
 
+```{r}
+#| label: setup
+#| include: false
+
+source(here::here("_setup.R"))
+asml <- readRDS(here::here("data", "asml_data.rds"))
+```
+
 This project aims to conduct an in-depth time series analysis of the stock prices for **ASML Holding NV (ASML)**, a global leader in the manufacturing of lithography systems for the semiconductor industry. The primary objective is to explore the dynamics of historical prices, volatility, and underlying trends of the stock.
+
+## Data Source
+
+We retrieve historical daily data using the `quantmod` R package, focusing on the **Adjusted Closing Price** to account for dividends and stock splits.
+
+* **Ticker**: ASML
+* **Source**: [Yahoo Finance](https://finance.yahoo.com/quote/ASML/)
+* **Start Date**: 2000-01-01
+* **End Date**: 2025-12-01
+
+## Data Loading
+
+The dataset structure is shown below:
+
+```{r}
+#| label: show-table-data
+
+datatable(
+  tail(asml, 100),
+  rownames = FALSE,
+  options = list(
+    pageLength = 10,
+    order = list(list(0, 'desc'))
+  )
+)
+```

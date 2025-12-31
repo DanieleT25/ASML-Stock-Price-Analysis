@@ -1,0 +1,21 @@
+{
+  "hash": "293c7f0b33d3d76940d3d27c9a2d1317",
+  "result": {
+    "engine": "knitr",
+    "markdown": "::: {.d-flex .gap-2 .justify-content-start .mb-4}\n\n<a href=\"https://github.com/DanieleT25/ASML-Stock-Price-Analysis\" target=\"_blank\" class=\"btn btn-outline-secondary btn-sm\" role=\"button\">\n  <i class=\"bi bi-github\"></i> GitHub Repository\n</a>\n\n<a href=\"https://danielet25.github.io/ASML-Stock-Price-Analysis/presentation.html\" target=\"_blank\" class=\"btn btn-outline-primary btn-sm\" role=\"button\">\n  <i class=\"bi bi-easel\"></i> View Slides\n</a>\n\n<a href=\"https://danielet25.github.io/ASML-Stock-Price-Analysis/ASML-Stock-Price-Analysis.pdf\" target=\"_blank\" class=\"btn btn-outline-danger btn-sm\" role=\"button\">\n  <i class=\"bi bi-file-earmark-pdf\"></i> Download PDF\n</a>\n\n:::\n\n# Preface {.unnumbered}\n\n\n\nThis project aims to conduct an in-depth time series analysis of the stock prices for **ASML Holding NV (ASML)**, a global leader in the manufacturing of lithography systems for the semiconductor industry. The primary objective is to explore the dynamics of historical prices, volatility, and underlying trends of the stock.\n\n## Data Source\n\nWe retrieve historical daily data using the `quantmod` R package, focusing on the **Adjusted Closing Price** to account for dividends and stock splits.\n\n* **Ticker**: ASML\n* **Source**: [Yahoo Finance](https://finance.yahoo.com/quote/ASML/)\n* **Start Date**: 2000-01-01\n* **End Date**: 2025-12-01\n\n## Data Loading\n\nThe dataset structure is shown below:\n\n\n::: {.cell}\n\n```{.r .cell-code}\ndatatable(\n  tail(asml, 100),\n  rownames = FALSE,\n  options = list(\n    pageLength = 10,\n    order = list(list(0, 'desc'))\n  )\n)\n```\n\n::: {.cell-output-display}\n![](index_files/figure-pdf/show-table-data-1.pdf){fig-pos='H'}\n:::\n:::\n\n",
+    "supporting": [
+      "index_files"
+    ],
+    "filters": [
+      "rmarkdown/pagebreak.lua"
+    ],
+    "includes": {},
+    "engineDependencies": {
+      "knitr": [
+        "{\"type\":\"list\",\"attributes\":{},\"value\":[]}"
+      ]
+    },
+    "preserve": null,
+    "postProcess": false
+  }
+}

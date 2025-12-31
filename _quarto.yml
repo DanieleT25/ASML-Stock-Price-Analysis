@@ -1,6 +1,8 @@
 project:
   type: book
   output-dir: _output
+  pre-render: scripts/pre-render.R
+  post-render: scripts/post-render.R
 
 book:
   title: "ASML Stock Price Analysis"
@@ -9,12 +11,11 @@ book:
   date: last-modified
   chapters:
     - index.qmd
-    - qmd/01-price-analysis.qmd
+    - qmd/01-EDA.qmd
     - qmd/02-return-analysis.qmd
     - qmd/03-volatility-analysis.qmd
-    - qmd/references.qmd
-
-bibliography: references.bib
+  repo-url: https://github.com/DanieleT25/ASML-Stock-Price-Analysis
+  repo-actions: [source, issue]
 
 format:
   html:
@@ -22,14 +23,30 @@ format:
     toc: true
     code-fold: true
     number-sections: true
+    toc-depth: 3
+    smooth-scroll: true
   pdf:
     documentclass: scrreport
+    output-file: "ASML-Stock-Price-Analysis"
     toc: true
     number-sections: true
     colorlinks: true
+    code-overflow: wrap
+    fontsize: 11pt
 
+    geometry:
+      - top=30mm
+      - left=20mm
+      - right=20mm
+      - bottom=30mm
+
+    execute:
+      out-width: "100%"
+      fig-asp: 0.618
+      fig-pos: 'H'
+
+    monofont-options: 
+      - "Scale=0.8"
 
 execute:
   freeze: auto
-#   warning: false
-#   message: false

@@ -8,10 +8,10 @@ _Project for "Time series analysis for economic and financial data" course of Da
 _[Daniele Tambone](https://www.linkedin.com/in/daniele-tambone-b5733616a/) @ Dept of Math and Computer Science, University of Catania_
 
 ## Overview
-This project focuses on the time series analysis of ASML Holding N.V. (ASML) stock prices. Utilizing a reproducible data science workflow, this analysis aims to explore historical trends, visualize market volatility, and evaluate key financial metrics.
+This project focuses on the time series analysis of **ASML Holding N.V. (ASML)** stock prices. Utilizing a reproducible data science workflow, this analysis aims to explore historical trends, visualize market volatility, and evaluate key financial metrics.
 
 The main topics are:
-1. Price analysis
+1. EDA (Exploratory Data Analysis)
 2. Return analysis
 3. Volatility analysis
 
@@ -51,4 +51,12 @@ Please ensure you have the following installed:
     quarto render
     ```
 
-    The output will be generated in the `_output/`directory.
+    The output will be generated in the `_output/` directory.
+
+## Project Outputs
+
+| Type | Description | Link |
+| :--- | :--- | :--- |
+| **HTML Report** | Full interactive Quarto Book (Website) | [**View Analysis**](https://danielet25.github.io/ASML-Stock-Price-Analysis/) |
+| **Presentation** | Summary slides (RevealJS) | [**View Slides**](https://danielet25.github.io/ASML-Stock-Price-Analysis/presentation.html) |
+| **PDF Report** | Static printable version | [**Download PDF**](https://danielet25.github.io/ASML-Stock-Price-Analysis/ASML-Stock-Price-Analysis.pdf) |
