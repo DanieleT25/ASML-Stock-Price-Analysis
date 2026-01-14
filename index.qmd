@@ -33,7 +33,7 @@ We retrieve historical daily data using the `quantmod` R package, focusing on th
 * **Ticker**: ASML
 * **Source**: [Yahoo Finance](https://finance.yahoo.com/quote/ASML/)
 * **Start Date**: 2000-01-01
-* **End Date**: 2025-12-01
+* **End Date**: 2025-12-31
 
 ## Data Loading
 

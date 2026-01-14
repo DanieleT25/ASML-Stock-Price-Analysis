@@ -317,4 +317,270 @@ datatable(jb_res, options = list(dom = 't'), rownames = FALSE)
 
 # Returns Analysis
 
+## ACF and PACF {.smaller}
+
+```{r}
+#| label: acf-pacf-plots
+#| message: false
+#| fig-width: 16
+#| fig-height: 6
+#| out-width: "100%"
+
+acf_res <- acf(log_returns$LogReturns, plot = FALSE, lag.max = 20)
+pacf_res <- pacf(log_returns$LogReturns, plot = FALSE, lag.max = 20)
+
+ci <- qnorm((1 + 0.95)/2)/sqrt(length(log_returns$LogReturns))
+
+df_acf <- data.frame(lag = as.numeric(acf_res$lag)[-1], acf = as.numeric(acf_res$acf)[-1])
+df_pacf <- data.frame(lag = as.numeric(pacf_res$lag), pacf = as.numeric(pacf_res$acf))
+
+fig_acf <- plot_ly(df_acf, x = ~lag, y = ~acf, type = 'bar', name = 'ACF',
+                   marker = list(color = '#1f77b4')) %>%
+  add_segments(x = min(df_acf$lag), xend = max(df_acf$lag), y = ci, yend = ci, 
+               line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  add_segments(x = min(df_acf$lag), xend = max(df_acf$lag), y = -ci, yend = -ci, 
+               line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  layout(yaxis = list(title = "ACF"))
+
+fig_pacf <- plot_ly(df_pacf, x = ~lag, y = ~pacf, type = 'bar', name = 'PACF',
+                    marker = list(color = '#ff7f0e')) %>%
+  add_segments(x = min(df_pacf$lag), xend = max(df_pacf$lag), y = ci, yend = ci, 
+               line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  add_segments(x = min(df_pacf$lag), xend = max(df_pacf$lag), y = -ci, yend = -ci, 
+               line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  layout(yaxis = list(title = "PACF"))
+
+subplot(fig_acf, fig_pacf, nrows = 1, margin = 0.05, titleY = TRUE) %>%
+  layout(title = "Autocorrelation & Partial Autocorrelation",
+  autosize = FALSE,
+  width = 1000,
+  height = 550,
+  margin = list(l = 50, r = 20, b = 40, t = 30, pad = 4)
+)
+```
+
+
+## AIC vs BIC {.smaller}
+
+```{r}
+set.seed(123)
+
+arma_10 <- Arima(log_returns$LogReturns, order=c(1,0,0))
+arma_01 <- Arima(log_returns$LogReturns, order=c(0,0,1))
+arma_11 <- Arima(log_returns$LogReturns, order=c(1,0,1))
+arma_20 <- Arima(log_returns$LogReturns, order=c(2,0,0))
+arma_02 <- Arima(log_returns$LogReturns, order=c(0,0,2))
+arma_12 <- Arima(log_returns$LogReturns, order=c(1,0,2))
+arma_21 <- Arima(log_returns$LogReturns, order=c(2,0,1))
+arma_22 <- Arima(log_returns$LogReturns, order=c(2,0,2))
+arma_30 <- Arima(log_returns$LogReturns, order=c(3,0,0))
+arma_03 <- Arima(log_returns$LogReturns, order=c(0,0,3))
+arma_13 <- Arima(log_returns$LogReturns, order=c(1,0,3))
+arma_23 <- Arima(log_returns$LogReturns, order=c(2,0,3))
+arma_31 <- Arima(log_returns$LogReturns, order=c(3,0,1))
+arma_32 <- Arima(log_returns$LogReturns, order=c(3,0,2))
+arma_33 <- Arima(log_returns$LogReturns, order=c(3,0,3))
+```
+
+
+```{r}
+#| label: model-comparison
+#| message: false
+#| fig-width: 16
+#| fig-height: 6
+#| out-width: "100%"
+
+models_list <- list(
+  "AR(1)" = arma_10, "MA(1)" = arma_01, "ARMA(1,1)" = arma_11,
+  "AR(2)" = arma_20, "MA(2)" = arma_02, "ARMA(1,2)" = arma_12,
+  "ARMA(2,1)" = arma_21, "ARMA(2,2)" = arma_22,
+  "AR(3)" = arma_30, "MA(3)" = arma_03, "ARMA(1,3)" = arma_13,
+  "ARMA(2,3)" = arma_23, "ARMA(3,1)" = arma_31, "ARMA(3,2)" = arma_32,
+  "ARMA(3,3)" = arma_33
+)
+
+metrics_df <- data.frame(
+  Model = names(models_list),
+  AIC = sapply(models_list, AIC),
+  BIC = sapply(models_list, BIC)
+)
+
+metrics_df$Model <- factor(metrics_df$Model, levels = metrics_df$Model)
+
+min_aic_val <- min(metrics_df$AIC)
+min_bic_val <- min(metrics_df$BIC)
+
+plot_aic <- plot_ly(metrics_df, x = ~Model, y = ~AIC, name = 'AIC',
+  type = 'scatter', mode = 'lines+markers',
+  line = list(color = '#1f77b4', width = 2),
+  marker = list(size = 8, color = '#1f77b4')) %>% layout(title = "AIC Trend", yaxis = list(title = "AIC"))
+
+best_aic <- metrics_df[metrics_df$AIC == min_aic_val, ]
+plot_aic <- plot_aic %>%
+  add_trace(data = best_aic, x = ~Model, y = ~AIC, 
+    type = 'scatter', mode = 'markers', name = 'Best AIC',
+    marker = list(color = 'red', size = 12, symbol = 'star'),
+    showlegend = FALSE
+  )
+
+plot_bic <- plot_ly(metrics_df, x = ~Model, y = ~BIC, name = 'BIC',
+  type = 'scatter', mode = 'lines+markers',
+  line = list(color = '#ff7f0e', width = 2),
+  marker = list(size = 8, color = '#ff7f0e')) %>% layout(title = "BIC Trend", yaxis = list(title = "BIC"))
+
+best_bic <- metrics_df[metrics_df$BIC == min_bic_val, ]
+plot_bic <- plot_bic %>%
+  add_trace(
+    data = best_bic, x = ~Model, y = ~BIC, 
+    type = 'scatter', mode = 'markers', name = 'Best BIC',
+    marker = list(color = 'red', size = 12, symbol = 'star'),
+    showlegend = FALSE
+  )
+
+final_plot <- subplot(plot_aic, plot_bic, nrows = 2, shareX = TRUE, titleY = TRUE) %>%
+  layout(
+    title = "Model Selection Criteria: AIC & BIC Trends",
+    hovermode = "x unified",
+    autosize = FALSE,
+    width = 1000,
+    height = 550,
+    margin = list(l = 50, r = 20, b = 40, t = 30, pad = 4)
+  )
+
+final_plot
+```
+
+## Forecast: plot {.smaller}
+
+```{r}
+#| label: compute-forecast
+
+n_total <- nrow(log_returns)
+n_train <- floor(0.80 * n_total)
+
+train_data <- log_returns$LogReturns[1:n_train]
+test_data <- log_returns$LogReturns[(n_train + 1):n_total]
+
+set.seed(123)
+
+mod_winner_bic <- Arima(train_data, order=c(1,0,1))
+mod_winner_aic <- Arima(train_data, order=c(3,0,3))
+mod_naive <- Arima(train_data, order=c(0,0,0)) 
+
+h_steps <- length(test_data)
+
+fc_bic <- forecast(mod_winner_bic, h=h_steps)
+fc_aic <- forecast(mod_winner_aic, h=h_steps)
+fc_naive <- forecast(mod_naive, h=h_steps)
+```
+
+```{r}
+#| label: forecast-plot-interactive
+#| fig-width: 16
+#| fig-height: 6
+#| out-width: "100%"
+
+dates_train <- log_returns$Date[1:n_train]
+dates_test  <- log_returns$Date[(n_train + 1):n_total]
+
+fig_fc <- plot_ly(
+  x = dates_train, 
+  y = train_data, 
+  type = 'scatter', 
+  mode = 'lines', 
+  name = 'Train (80%)', 
+  line = list(color = 'darkgrey', width = 1)
+)
+
+fig_fc <- add_trace(
+  fig_fc, 
+  x = dates_test, 
+  y = test_data, 
+  name = 'Actual Test Data (20%)',
+  line = list(color = 'black', width = 1, dash = 'dot')
+)
+
+fig_fc <- add_trace(
+  fig_fc, 
+  x = dates_test, 
+  y = as.numeric(fc_bic$mean), 
+  name = 'Forecast ARMA(1,1)', 
+  line = list(color = 'blue', width = 1.5)
+)
+
+fig_fc <- add_trace(
+  fig_fc, 
+  x = dates_test, 
+  y = as.numeric(fc_aic$mean), 
+  name = 'Forecast ARMA(3,3)', 
+  line = list(color = 'red', width = 1.5)
+)
+
+fig_fc <- layout(
+  fig_fc,
+  title = "Forecast Validation: Models vs Actuals",
+  xaxis = list(title = "Date"),
+  yaxis = list(title = "Log Return"),
+  legend = list(orientation = "h", x = 0.1, y = -0.2),
+  shapes = list(
+    list(
+      type = "line",
+      x0 = min(dates_test),
+      x1 = min(dates_test),
+      y0 = min(log_returns$LogReturns),
+      y1 = max(log_returns$LogReturns),
+      line = list(color = "gray", width = 1, dash = "dash")
+    )
+  ),
+  autosize = FALSE,
+  width = 1000,
+  height = 550,
+  margin = list(l = 50, r = 20, b = 40, t = 30, pad = 4)
+)
+
+fig_fc
+```
+
+## Forecast: metrics {.smaller}
+
+```{r}
+#| label: forecast-validation
+
+get_metrics_robust <- function(forecast_obj, actuals) {
+  vec_pred <- as.numeric(forecast_obj$mean)
+  vec_obs <- as.numeric(actuals)
+  
+  acc <- accuracy(vec_pred, vec_obs)
+  
+  return(c(RMSE = acc[1, "RMSE"], MAE = acc[1, "MAE"]))
+}
+
+res_bic <- get_metrics_robust(fc_bic, test_data)
+res_aic <- get_metrics_robust(fc_aic, test_data)
+res_naive <- get_metrics_robust(fc_naive, test_data)
+
+u_bic <- res_bic["RMSE"] / res_naive["RMSE"]
+u_aic <- res_aic["RMSE"] / res_naive["RMSE"]
+u_naive <- 1.0
+
+validation_table <- data.frame(
+  Model = c("ARMA(1,1) [BIC Winner]", "ARMA(3,3) [AIC Winner]", "Naive (Benchmark)"),
+  RMSE = c(res_bic["RMSE"], res_aic["RMSE"], res_naive["RMSE"]),
+  MAE = c(res_bic["MAE"], res_aic["MAE"], res_naive["MAE"]),
+  Theil_U2 = c(u_bic, u_aic, u_naive)
+)
+
+datatable(validation_table, options = list(dom = 't'), rownames = FALSE) %>% 
+  formatRound(
+    columns = c("RMSE", "MAE", "Theil_U2"), 
+    digits = 5
+  )
+
+# knitr::kable(
+#   validation_table, 
+#   caption = "Final ranking based on prediction error (test set)",
+#   digits = 5
+# )
+```
+
 # Volatility Analysis

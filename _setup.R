@@ -7,3 +7,6 @@ library(fGarch)
 library(FinTS)
 library(moments)
 library(webshot2) # For saving plotly plots as images
+
+library(forecast)
+library(lmtest)

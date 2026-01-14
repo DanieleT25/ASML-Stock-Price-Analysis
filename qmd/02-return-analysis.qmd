@@ -1,1 +1,485 @@
-# Return analysis
+---
+format: html
+execute:
+  fig-width: 7
+  fig-height: 4
+knitr:
+  opts_chunk:
+    out.width: "100%"
+---
+
+# Return Analysis
+
+```{r}
+#| label: setup
+#| include: false
+
+source(here::here("_setup.R"))
+asml <- readRDS(here::here("data", "asml_data.rds"))
+
+log_ret_vec <- diff(log(asml$ASML.Adjusted))
+log_ret_vec <- log_ret_vec[is.finite(log_ret_vec)]
+
+log_returns <- data.frame(
+  Date = asml$Date[-1],
+  LogReturns = as.numeric(log_ret_vec)
+)
+```
+
+The objective of this chapter is to identify the optimal ARMA(p,q) model to describe the dynamics of ASML log-returns. To determine the most suitable stochastic process, we adopt a systematic approach structured in the following stages:
+
+1. **Exploratory Analysis:** Analysis of autocorrelation functions **(ACF/PACF)** to assess temporal dependency and detect potential seasonality or distinct patterns.
+2. **Model Selection (Grid Search):** Estimation of various  order combinations, residual analysis (plots and **Ljung-Box test**), and selection of the "winning" models based on the minimization of **AIC (Akaike Information Criterion)** and **BIC (Bayesian Information Criterion)**.
+3. **Out-of-Sample Validation:** Comparison of the predictive performance of the selected models against a benchmark (historical mean) using a test set withheld from the estimation process.
+
+## ACF and PACF Analysis
+
+Analyzing correlograms is the preliminary step to identify potential orders for the **AR (AutoRegressive)** and **MA (Moving Average)** components.
+
+```{r}
+#| label: acf-pacf-plots
+#| fig-cap: "Log-Returns ACF and PACF"
+#| message: false
+
+acf_res <- acf(log_returns$LogReturns, plot = FALSE, lag.max = 20)
+pacf_res <- pacf(log_returns$LogReturns, plot = FALSE, lag.max = 20)
+
+ci <- qnorm((1 + 0.95)/2)/sqrt(length(log_returns$LogReturns))
+
+df_acf <- data.frame(
+  lag = as.numeric(acf_res$lag)[-1],
+  acf = as.numeric(acf_res$acf)[-1])
+
+df_pacf <- data.frame(
+  lag = as.numeric(pacf_res$lag),
+  pacf = as.numeric(pacf_res$acf))
+
+fig_acf <- plot_ly(df_acf, x = ~lag, y = ~acf, type = 'bar', name = 'ACF',
+  marker = list(color = '#1f77b4')) %>%
+  
+  add_segments(x = min(df_acf$lag), xend = max(df_acf$lag), y = ci, yend = ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  add_segments(x = min(df_acf$lag), xend = max(df_acf$lag), y = -ci, yend = -ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  layout(yaxis = list(title = "ACF"))
+
+fig_pacf <- plot_ly(df_pacf, x = ~lag, y = ~pacf, type = 'bar', name = 'PACF',
+  marker = list(color = '#ff7f0e')) %>%
+  
+  add_segments(x = min(df_pacf$lag), xend = max(df_pacf$lag), y = ci, yend = ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  add_segments(x = min(df_pacf$lag), xend = max(df_pacf$lag), y = -ci, yend = -ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  layout(yaxis = list(title = "PACF"))
+
+subplot(fig_acf, fig_pacf, nrows = 1, margin = 0.05, titleY = TRUE) %>%
+  layout(title = "Autocorrelation & Partial Autocorrelation", margin = list(t = 50))
+```
+
+**Observations:** The autocorrelation at lag-1 is statistically significant, yet its magnitude is limited (approximately -0.04). Neither the ACF nor the PACF exhibits a clear decay or a sharp cutoff. This ambiguity makes it difficult to visually identify a pure AR or MA process, suggesting instead a mixed ARMA structure.
+
+A classical iterative approach ("Box-Jenkins") would proceed by analyzing the **residuals**:
+
+* If the residuals' ACF shows a sharp cutoff $\rightarrow$ add an MA term.
+* If the residuals' PACF shows a sharp cutoff $\rightarrow$ add an AR term.
+* If both plots decay slowly or are unclear $\rightarrow$ increase both orders.
+
+However, given the ambiguity of the observed patterns and considering that high-order lags ($>3$) are uncommon in financial contexts, we opted for a more transparent and systematic approach. We will perform a comprehensive search, testing all possible combinations within a limited range.
+
+## Models
+
+To assess **the goodness of fit** for each configuration, we analyze two fundamental diagnostic outputs:
+
+* **Residual Analysis (`checkresiduals`)**: This function allows us to verify the absence of autocorrelation in the residuals. In addition to a visual inspection of the plots, the **Ljung-Box Test** is performed.
+  + $H_0$ (Null Hypothesis): The residuals are independently distributed (White Noise).
+  + Interpretation: A p-value $>0.05$ indicates that there is insufficient evidence to reject the null hypothesis. Therefore, the model has adequately captured the temporal structure of the data.
+* **Parameter Significance (`coeftest`)**: This reports the estimated coefficients (*ar* and *ma*) along with their Standard Errors. Using the z-test, we verify whether the coefficients are statistically different from zero (p-value $<0.05$).
+
+```{r}
+set.seed(123)
+```
+
+::: {.panel-tabset}
+
+### AR(1)
+```{r}
+#| label: arma_10
+
+arma_10 <- Arima(log_returns$LogReturns, order=c(1,0,0))
+checkresiduals(arma_10)
+coeftest(arma_10)
+```
+
+### MA(1)
+```{r}
+#| label: arma_01
+
+arma_01 <- Arima(log_returns$LogReturns, order=c(0,0,1))
+checkresiduals(arma_01)
+coeftest(arma_01)
+```
+
+### ARMA(1,1)
+```{r}
+#| label: arma_11
+
+arma_11 <- Arima(log_returns$LogReturns, order=c(1,0,1))
+checkresiduals(arma_11)
+coeftest(arma_11)
+```
+
+### AR(2)
+```{r}
+#| label: arma_20
+
+arma_20 <- Arima(log_returns$LogReturns, order=c(2,0,0))
+checkresiduals(arma_20)
+coeftest(arma_20)
+```
+
+### MA(2)
+```{r}
+#| label: arma_02
+
+arma_02 <- Arima(log_returns$LogReturns, order=c(0,0,2))
+checkresiduals(arma_02)
+coeftest(arma_02)
+```
+
+### ARMA(1,2)
+```{r}
+#| label: arma_12
+
+arma_12 <- Arima(log_returns$LogReturns, order=c(1,0,2))
+checkresiduals(arma_12)
+coeftest(arma_12)
+```
+
+### ARMA(2,1)
+```{r}
+#| label: arma_21
+
+arma_21 <- Arima(log_returns$LogReturns, order=c(2,0,1))
+checkresiduals(arma_21)
+coeftest(arma_21)
+```
+
+### ARMA(2,2)
+```{r}
+#| label: arma_22
+
+arma_22 <- Arima(log_returns$LogReturns, order=c(2,0,2))
+checkresiduals(arma_22)
+coeftest(arma_22)
+```
+
+
+### AR(3)
+```{r}
+#| label: arma_30
+
+arma_30 <- Arima(log_returns$LogReturns, order=c(3,0,0))
+checkresiduals(arma_30)
+coeftest(arma_30)
+```
+
+### MA(3)
+```{r}
+#| label: arma_03
+
+arma_03 <- Arima(log_returns$LogReturns, order=c(0,0,3))
+checkresiduals(arma_03)
+coeftest(arma_03)
+```
+
+### ARMA(1,3)
+```{r}
+#| label: arma_13
+
+arma_13 <- Arima(log_returns$LogReturns, order=c(1,0,3))
+checkresiduals(arma_13)
+coeftest(arma_13)
+```
+
+### ARMA(2,3)
+```{r}
+#| label: arma_23
+
+arma_23 <- Arima(log_returns$LogReturns, order=c(2,0,3))
+checkresiduals(arma_23)
+coeftest(arma_23)
+```
+
+### ARMA(3,1)
+```{r}
+#| label: arma_31
+
+arma_31 <- Arima(log_returns$LogReturns, order=c(3,0,1))
+checkresiduals(arma_31)
+coeftest(arma_31)
+```
+
+### ARMA(3,2)
+```{r}
+#| label: arma_32
+
+arma_32 <- Arima(log_returns$LogReturns, order=c(3,0,2))
+checkresiduals(arma_32)
+coeftest(arma_32)
+```
+
+### ARMA(3,3)
+```{r}
+#| label: arma_33
+
+arma_33 <- Arima(log_returns$LogReturns, order=c(3,0,3))
+checkresiduals(arma_33)
+coeftest(arma_33)
+```
+
+:::
+
+As observed from the outputs, the simpler models (such as AR(1) and MA(1)) yield very low p-values for the Ljung-Box test ($<0.05$). This indicates that significant autocorrelation remains within the residuals, implying that these models have failed to capture all the relevant information.
+
+Conversely, as we increase complexity towards an **ARMA(3,3)**, the p-value rises above the critical 5% threshold. Consequently, we fail to reject the null hypothesis: the residuals of this model behave as **White Noise**. This suggests that the ARMA(3,3) is mathematically effective in capturing the patterns of the time series, although its high complexity warrants caution regarding the risk of **overfitting**.
+
+Additionally, the **ARMA(1,3)** model exhibits instability in parameter estimation (incalculable Std. Error), pointing to potential **over-parameterization**.
+
+## AIC vs BIC
+
+We visualize the trends of the information criteria for all estimated models.
+
+```{r}
+#| label: model-comparison
+#| fig-cap: "Comparison between AIC and BIC"
+#| message: false
+
+models_list <- list(
+  "AR(1)" = arma_10, "MA(1)" = arma_01, "ARMA(1,1)" = arma_11,
+  "AR(2)" = arma_20, "MA(2)" = arma_02, "ARMA(1,2)" = arma_12,
+  "ARMA(2,1)" = arma_21, "ARMA(2,2)" = arma_22,
+  "AR(3)" = arma_30, "MA(3)" = arma_03, "ARMA(1,3)" = arma_13,
+  "ARMA(2,3)" = arma_23, "ARMA(3,1)" = arma_31, "ARMA(3,2)" = arma_32,
+  "ARMA(3,3)" = arma_33
+)
+
+metrics_df <- data.frame(
+  Model = names(models_list),
+  AIC = sapply(models_list, AIC),
+  BIC = sapply(models_list, BIC)
+)
+
+metrics_df$Model <- factor(metrics_df$Model, levels = metrics_df$Model)
+
+min_aic_val <- min(metrics_df$AIC)
+min_bic_val <- min(metrics_df$BIC)
+
+plot_aic <- plot_ly(metrics_df, x = ~Model, y = ~AIC, name = 'AIC',
+  type = 'scatter', mode = 'lines+markers',
+  line = list(color = '#1f77b4', width = 2),
+  marker = list(size = 8, color = '#1f77b4')) %>% 
+  layout(title = "AIC Trend", yaxis = list(title = "AIC"))
+
+best_aic <- metrics_df[metrics_df$AIC == min_aic_val, ]
+plot_aic <- plot_aic %>%
+  add_trace(data = best_aic, x = ~Model, y = ~AIC, 
+    type = 'scatter', mode = 'markers', name = 'Best AIC',
+    marker = list(color = 'red', size = 12, symbol = 'star'),
+    showlegend = FALSE
+  )
+
+plot_bic <- plot_ly(metrics_df, x = ~Model, y = ~BIC, name = 'BIC',
+  type = 'scatter', mode = 'lines+markers',
+  line = list(color = '#ff7f0e', width = 2),
+  marker = list(size = 8, color = '#ff7f0e')) %>% 
+  layout(title = "BIC Trend", yaxis = list(title = "BIC"))
+
+best_bic <- metrics_df[metrics_df$BIC == min_bic_val, ]
+plot_bic <- plot_bic %>%
+  add_trace(
+    data = best_bic, x = ~Model, y = ~BIC, 
+    type = 'scatter', mode = 'markers', name = 'Best BIC',
+    marker = list(color = 'red', size = 12, symbol = 'star'),
+    showlegend = FALSE
+  )
+
+final_plot <- subplot(plot_aic, plot_bic, nrows = 2, shareX = TRUE, titleY = TRUE) %>%
+  layout(
+    title = "Model Selection Criteria: AIC & BIC Trends",
+    hovermode = "x unified",
+    margin = list(t = 50)
+  )
+
+final_plot
+```
+
+The graphical analysis of the information criteria highlights a typical divergence found in financial time series modeling.
+
+As evidenced by the plot, the **AIC** criterion, which prioritizes **goodness of fit**, identifies the **ARMA(3,3)** as the optimal model (minimum value). Conversely, the **BIC** criterion, which penalizes model complexity more severely to prevent overfitting, suggests a much more **parsimonious** model: the **ARMA(1,1)**.
+
+Faced with these conflicting indications (a complex model vs a simple model), it is not possible to determine a priori which one is superior. To resolve this ambiguity and assess which model generalizes better on unobserved data, we will proceed with an **Out-of-Sample validation**, computing forecasts and comparing error metrics against actual data.
+
+## Forecast
+
+Since the information criteria (AIC and BIC) suggest different models, we proceed with an Out-of-Sample validation to test the actual predictive capacity on data not used for estimation.
+
+We split the time series into two subsets:
+
+* **Training Set ($80%$)**: Used to estimate the model parameters.
+* **Test Set ($20%$)**: Used to compare forecasts against actual data (h-step-ahead forecast).
+
+```{r}
+#| label: compute-forecast
+
+n_total <- nrow(log_returns)
+n_train <- floor(0.80 * n_total)
+
+train_data <- log_returns$LogReturns[1:n_train]
+test_data <- log_returns$LogReturns[(n_train + 1):n_total]
+
+set.seed(123)
+
+mod_winner_bic <- Arima(train_data, order=c(1,0,1))
+mod_winner_aic <- Arima(train_data, order=c(3,0,3))
+mod_naive <- Arima(train_data, order=c(0,0,0)) 
+
+h_steps <- length(test_data)
+
+fc_bic <- forecast(mod_winner_bic, h=h_steps)
+fc_aic <- forecast(mod_winner_aic, h=h_steps)
+fc_naive <- forecast(mod_naive, h=h_steps)
+```
+
+The following plot displays the time series trend and the forecasts generated by the three models over the test period.
+
+::: {.callout-note}
+Given the stationary nature and high volatility of log-returns, it is expected that medium-to-long-term forecasts will tend to converge rapidly towards the unconditional mean of the process.
+:::
+
+```{r}
+#| label: forecast-plot-interactive
+#| fig-cap: "Interactive Forecast Validation: Train vs Test vs Models"
+
+
+dates_train <- log_returns$Date[1:n_train]
+dates_test  <- log_returns$Date[(n_train + 1):n_total]
+
+fig_fc <- plot_ly(
+  x = dates_train, 
+  y = train_data, 
+  type = 'scatter', 
+  mode = 'lines', 
+  name = 'Train (80%)', 
+  line = list(color = 'darkgrey', width = 1)
+)
+
+fig_fc <- add_trace(
+  fig_fc, 
+  x = dates_test, 
+  y = test_data, 
+  name = 'Actual Test Data (20%)',
+  line = list(color = 'black', width = 1, dash = 'dot')
+)
+
+fig_fc <- add_trace(
+  fig_fc, 
+  x = dates_test, 
+  y = as.numeric(fc_bic$mean), 
+  name = 'Forecast ARMA(1,1)', 
+  line = list(color = 'blue', width = 1.5)
+)
+
+fig_fc <- add_trace(
+  fig_fc, 
+  x = dates_test, 
+  y = as.numeric(fc_aic$mean), 
+  name = 'Forecast ARMA(3,3)', 
+  line = list(color = 'red', width = 1.5)
+)
+
+fig_fc <- layout(
+  fig_fc,
+  title = "Forecast Validation: Models vs Actuals",
+  xaxis = list(title = "Date"),
+  yaxis = list(title = "Log Return"),
+  legend = list(orientation = "h", x = 0.1, y = -0.2),
+  shapes = list(
+    list(
+      type = "line",
+      x0 = min(dates_test),
+      x1 = min(dates_test),
+      y0 = min(log_returns$LogReturns),
+      y1 = max(log_returns$LogReturns),
+      line = list(color = "gray", width = 1, dash = "dash")
+    )
+  )
+)
+
+fig_fc
+```
+
+We evaluate the predictive performance using:
+
+* **MAE (Mean absolute Error)**
+* **RMSE (Root Mean Squared Error)**
+* **Theil's U2 index:** The ratio between the model's RMSE and the Naive model's RMSE.
+  + $U<1$: The model outperforms the benchmark.
+  + $U \approx 1$: The model performs equivalently to the benchmark.
+  + $U>1$: The model performs worse than the benchmark.
+
+```{r}
+#| label: forecast-validation
+#| fig-cap: "Comparison of out-of-sample error metrics"
+
+get_metrics_robust <- function(forecast_obj, actuals) {
+  vec_pred <- as.numeric(forecast_obj$mean)
+  vec_obs <- as.numeric(actuals)
+  
+  acc <- accuracy(vec_pred, vec_obs)
+  
+  return(c(RMSE = acc[1, "RMSE"], MAE = acc[1, "MAE"]))
+}
+
+res_bic <- get_metrics_robust(fc_bic, test_data)
+res_aic <- get_metrics_robust(fc_aic, test_data)
+res_naive <- get_metrics_robust(fc_naive, test_data)
+
+u_bic <- res_bic["RMSE"] / res_naive["RMSE"]
+u_aic <- res_aic["RMSE"] / res_naive["RMSE"]
+u_naive <- 1.0
+
+validation_table <- data.frame(
+  Model = c("ARMA(1,1) [BIC Winner]", "ARMA(3,3) [AIC Winner]", "Naive (Benchmark)"),
+  RMSE = c(res_bic["RMSE"], res_aic["RMSE"], res_naive["RMSE"]),
+  MAE = c(res_bic["MAE"], res_aic["MAE"], res_naive["MAE"]),
+  Theil_U2 = c(u_bic, u_aic, u_naive)
+)
+
+# knitr::kable(
+#   validation_table, 
+#   caption = "Final ranking based on prediction error (test set)",
+#   digits = 5
+# )
+
+datatable(validation_table, options = list(dom = 't'), rownames = FALSE)
+```
+
+As highlighted in the table, the **Theil's U2 index** for both ARMA models is extremely close to 1. This indicates that the statistical models, despite their complexity, fail to significantly outperform the simple forecast based on the historical mean (Naive Benchmark).
+
+::: {.callout-important}
+This result is consistent with the **Efficient Market Hypothesis (EMH)**, according to which past returns contain little to no useful information for predicting future short-term returns, making the series resemble a Random Walk.
+:::
+
+## Conclusion
+
+The analysis conducted in this chapter has highlighted the limitations of stationary linear models in forecasting the direction of ASML returns.
+
+Although information criteria (AIC) identified the ARMA(3,3) as a mathematical structure capable of "whitening" the in-sample residuals, the *Out-of-Sample* validation delivered an unequivocal verdict: **a Theil's U index close to 1 confirms that no ARMA model systematically outperforms the Naive benchmark.** This empirical result corroborates the hypothesis that, regarding the **conditional mean**, returns follow a process closely resembling a Random Walk, rendering trading strategies based solely on past autocorrelation futile.
+
+However, the unpredictability of the mean does not imply a total absence of structure within the series. Visual inspection of the log-returns plot reveals evident **volatility clustering**: periods of high volatility tend to be followed by high volatility, and periods of calm by calm (a phenomenon known as *conditional heteroskedasticity*).
+
+By assuming constant variance over time (homoskedasticity), ARMA models fail to capture this fundamental characteristic of financial markets. Therefore, in the next chapter, we will shift our focus from predicting the *sign* of returns to modeling their **magnitude** (risk) by introducing the **GARCH** (Generalized AutoRegressive Conditional Heteroskedasticity) family of models.

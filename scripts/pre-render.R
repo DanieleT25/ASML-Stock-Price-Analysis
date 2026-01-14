@@ -1,7 +1,7 @@
 source(here::here("_setup.R"))
 
 start <- "2000-01-01"
-end <- "2025-12-01"
+end <- "2025-12-31"
 
 message("Download ASML data from Yahoo Finance...")
 tryCatch({
