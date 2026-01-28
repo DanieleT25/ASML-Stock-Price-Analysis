@@ -127,6 +127,7 @@ sd_ret <- sd(log_returns$LogReturns)
 
 t_fit_fGarch <- stdFit(log_returns$LogReturns * 100)
 t_params <- t_fit_fGarch$par
+t_label <- sprintf("Student-t (df=%.2f)", t_params["nu"])
 
 fig_dist <- plot_ly(data = log_returns, x = ~LogReturns,
   type = "histogram", name = "Log Returns", histnorm = "probability density",
@@ -155,7 +156,7 @@ fig_dist <- fig_dist %>%
   add_lines(
     x = x_seq,
     y = y_t,
-    name = "Student-t",
+    name = t_label,
     line = list(color = "#2E86C1", width = 2),
     inherit = FALSE
   ) %>% 

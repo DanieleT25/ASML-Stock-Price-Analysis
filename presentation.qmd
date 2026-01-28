@@ -42,7 +42,7 @@ log_returns <- data.frame(Date = asml$Date[-1], LogReturns = as.numeric(log_ret_
 - **Data Source**: [Yahoo Finance](https://finance.yahoo.com/quote/ASML/)
 - **Period**:
     - from: 2000-01-01
-    - to: 2025-12-01.
+    - to: 2025-12-31.
 
 ### Dataframe
 
@@ -178,6 +178,7 @@ sd_ret <- sd(log_returns$LogReturns)
 
 t_fit_fGarch <- stdFit(log_returns$LogReturns * 100)
 t_params <- t_fit_fGarch$par
+t_label <- sprintf("Student-t (df=%.2f)", t_params["nu"])
 
 fig_dist <- plot_ly(data = log_returns, x = ~LogReturns,
   type = "histogram", name = "Log Returns", histnorm = "probability density",
@@ -206,7 +207,7 @@ fig_dist <- fig_dist %>%
   add_lines(
     x = x_seq,
     y = y_t,
-    name = "Student-t",
+    name = t_label,
     line = list(color = "#2E86C1", width = 2),
     inherit = FALSE
   ) %>% 
@@ -474,72 +475,139 @@ fc_aic <- forecast(mod_winner_aic, h=h_steps)
 fc_naive <- forecast(mod_naive, h=h_steps)
 ```
 
+::: {.panel-tabset}
+
+### One-Steap-Ahead {.smaller}
 ```{r}
-#| label: forecast-plot-interactive
+#| label: rolling-forecast
 #| fig-width: 16
 #| fig-height: 6
 #| out-width: "100%"
+fit_bic_rolling <- Arima(log_returns$LogReturns, model = mod_winner_bic)
+one_step_bic <- fitted(fit_bic_rolling)[(n_train + 1):n_total]
 
-dates_train <- log_returns$Date[1:n_train]
+fit_aic_rolling <- Arima(log_returns$LogReturns, model = mod_winner_aic)
+one_step_aic <- fitted(fit_aic_rolling)[(n_train + 1):n_total]
+
 dates_test  <- log_returns$Date[(n_train + 1):n_total]
 
-fig_fc <- plot_ly(
-  x = dates_train, 
-  y = train_data, 
-  type = 'scatter', 
-  mode = 'lines', 
-  name = 'Train (80%)', 
-  line = list(color = 'darkgrey', width = 1)
-)
-
-fig_fc <- add_trace(
-  fig_fc, 
+fig_roll <- plot_ly(
   x = dates_test, 
   y = test_data, 
-  name = 'Actual Test Data (20%)',
+  type = 'scatter', 
+  mode = 'lines', 
+  name = 'Actual Test Data', 
   line = list(color = 'black', width = 1, dash = 'dot')
 )
 
-fig_fc <- add_trace(
-  fig_fc, 
+fig_roll <- add_trace(
+  fig_roll, 
   x = dates_test, 
-  y = as.numeric(fc_bic$mean), 
-  name = 'Forecast ARMA(1,1)', 
-  line = list(color = 'blue', width = 1.5)
+  y = as.numeric(one_step_bic), 
+  name = 'Rolling ARMA(1,1)', 
+  line = list(color = 'blue', width = 1)
 )
 
-fig_fc <- add_trace(
-  fig_fc, 
+fig_roll <- add_trace(
+  fig_roll, 
   x = dates_test, 
-  y = as.numeric(fc_aic$mean), 
-  name = 'Forecast ARMA(3,3)', 
-  line = list(color = 'red', width = 1.5)
+  y = as.numeric(one_step_aic), 
+  name = 'Rolling ARMA(3,3)', 
+  line = list(color = 'red', width = 1)
 )
 
-fig_fc <- layout(
-  fig_fc,
-  title = "Forecast Validation: Models vs Actuals",
+fig_roll <- layout(
+  fig_roll,
+  title = "One-Step-Ahead Rolling Forecast (Test Set: 20%)",
   xaxis = list(title = "Date"),
   yaxis = list(title = "Log Return"),
   legend = list(orientation = "h", x = 0.1, y = -0.2),
-  shapes = list(
-    list(
-      type = "line",
-      x0 = min(dates_test),
-      x1 = min(dates_test),
-      y0 = min(log_returns$LogReturns),
-      y1 = max(log_returns$LogReturns),
-      line = list(color = "gray", width = 1, dash = "dash")
-    )
-  ),
   autosize = FALSE,
   width = 1000,
   height = 550,
   margin = list(l = 50, r = 20, b = 40, t = 30, pad = 4)
 )
 
-fig_fc
+fig_roll
 ```
+
+### Five-Steap-Ahead {.smaller}
+```{r}
+#| label: rolling-forecast-5step
+#| fig-width: 16
+#| fig-height: 6
+#| out-width: "100%"
+
+calc_k_step_rolling <- function(model_obj, series, n_train, k=5) {
+  n_total <- length(series)
+  test_indices <- (n_train + 1):n_total
+  forecasts <- numeric(length(test_indices))
+  
+  for (i in seq_along(test_indices)) {
+    target_idx <- test_indices[i]
+    origin_idx <- target_idx - k
+    
+    if (origin_idx > 0) {
+      subset_data <- series[1:origin_idx]
+      fit_temp <- Arima(subset_data, model = model_obj)
+      
+      fc_temp <- forecast(fit_temp, h = k)
+      
+      forecasts[i] <- as.numeric(fc_temp$mean[k])
+    } else {
+      forecasts[i] <- NA
+    }
+  }
+  return(forecasts)
+}
+
+k_horizon <- 5
+vec_5step_bic <- calc_k_step_rolling(mod_winner_bic, log_returns$LogReturns, n_train, k = k_horizon)
+vec_5step_aic <- calc_k_step_rolling(mod_winner_aic, log_returns$LogReturns, n_train, k = k_horizon)
+
+dates_test <- log_returns$Date[(n_train + 1):n_total]
+
+fig_roll_5 <- plot_ly(
+  x = dates_test, 
+  y = test_data, 
+  type = 'scatter', 
+  mode = 'lines', 
+  name = 'Actual Test Data', 
+  line = list(color = 'black', width = 1, dash = 'dot')
+)
+
+fig_roll_5 <- add_trace(
+  fig_roll_5, 
+  x = dates_test, 
+  y = vec_5step_bic, 
+  name = "Rolling ARMA(1,1)", 
+  line = list(color = 'blue', width = 1.5)
+)
+
+fig_roll_5 <- add_trace(
+  fig_roll_5, 
+  x = dates_test, 
+  y = vec_5step_aic, 
+  name = "Rolling ARMA(3,3)", 
+  line = list(color = 'red', width = 1.5)
+)
+
+fig_roll_5 <- layout(
+  fig_roll_5,
+  title = "Five-Step-Ahead Rolling Forecast (Test Set: 20%)",
+  xaxis = list(title = "Date"),
+  yaxis = list(title = "Log Return"),
+  legend = list(orientation = "h", x = 0.1, y = -0.2),
+  autosize = FALSE,
+  width = 1000,
+  height = 550,
+  margin = list(l = 50, r = 20, b = 40, t = 30, pad = 4)
+)
+
+fig_roll_5
+```
+
+:::
 
 ## Forecast: metrics {.smaller}
 
@@ -575,12 +643,445 @@ datatable(validation_table, options = list(dom = 't'), rownames = FALSE) %>%
     columns = c("RMSE", "MAE", "Theil_U2"), 
     digits = 5
   )
-
-# knitr::kable(
-#   validation_table, 
-#   caption = "Final ranking based on prediction error (test set)",
-#   digits = 5
-# )
 ```
 
 # Volatility Analysis
+
+```{r}
+log_returns$Squared <- log_returns$LogReturns^2
+log_returns$Abs <- abs(log_returns$LogReturns)
+```
+
+
+## Squared and Absolute Returns {.smaller}
+
+::: {.panel-tabset}
+
+### Squared Returns {.smaller}
+```{r}
+#| label: plot-squared-returns
+#| fig-width: 16
+#| fig-height: 6
+#| out-width: "100%"
+
+fig_sq <- plot_ly(data = log_returns, x = ~Date, y = ~Squared, type = 'scatter',
+  mode = 'lines', name = 'Squared Returns', line = list(color = 'darkred', width = 1))
+
+fig_sq <- layout(
+  fig_sq,
+  title = "ASML Squared Log-Returns",
+  xaxis = list(title = "Date"),
+  yaxis = list(title = "Squared Log Return"),
+  shapes = list(
+    list(
+      type = "line",
+      x0 = min(log_returns$Date),
+      x1 = max(log_returns$Date),
+      y0 = 0, 
+      y1 = 0,
+      line = list(color = "black", width = 1)
+    )
+  ),
+  autosize = FALSE,
+  width = 1000,
+  height = 550,
+  margin = list(l = 50, r = 20, b = 40, t = 30, pad = 4)
+)
+
+fig_sq
+```
+
+### Absolute Returns {.smaller}
+```{r}
+#| label: plot-absolute-value-returns
+#| fig-width: 16
+#| fig-height: 6
+#| out-width: "100%"
+
+fig_sq <- plot_ly(data = log_returns, x = ~Date, y = ~Abs, type = 'scatter',
+  mode = 'lines', name = 'Absolute Returns', line = list(color = 'darkred', width = 1))
+
+fig_sq <- layout(
+  fig_sq,
+  title = "ASML Absolute Log-Returns",
+  xaxis = list(title = "Date"),
+  yaxis = list(title = "Absolute value Log Return"),
+  shapes = list(
+    list(
+      type = "line",
+      x0 = min(log_returns$Date),
+      x1 = max(log_returns$Date),
+      y0 = 0, 
+      y1 = 0,
+      line = list(color = "black", width = 1)
+    )
+  ),
+  autosize = FALSE,
+  width = 1000,
+  height = 550,
+  margin = list(l = 50, r = 20, b = 40, t = 30, pad = 4)
+)
+
+fig_sq
+```
+
+:::
+
+## ACF vs PACF {.smaller}
+
+::: {.panel-tabset}
+
+### Squared Returns {.smaller}
+
+```{r}
+#| label: acf-pacf-squared
+#| fig-width: 16
+#| fig-height: 6
+#| out-width: "100%"
+
+acf_sq <- acf(log_returns$Squared, plot = FALSE, lag.max = 30)
+pacf_sq <- pacf(log_returns$Squared, plot = FALSE, lag.max = 30)
+
+ci <- qnorm((1 + 0.95)/2)/sqrt(length(log_returns$Squared))
+
+df_acf_sq <- data.frame(
+  lag = as.numeric(acf_sq$lag)[-1],
+  acf = as.numeric(acf_sq$acf)[-1])
+
+df_pacf_sq <- data.frame(
+  lag = as.numeric(pacf_sq$lag),
+  pacf = as.numeric(pacf_sq$acf))
+
+fig_acf_sq <- plot_ly(df_acf_sq, x = ~lag, y = ~acf, type = 'bar', name = 'ACF',
+  marker = list(color = '#1f77b4')) %>%
+  
+  add_segments(x = min(df_acf_sq$lag), xend = max(df_acf_sq$lag), y = ci, yend = ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  add_segments(x = min(df_acf_sq$lag), xend = max(df_acf_sq$lag), y = -ci, yend = -ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  layout(yaxis = list(title = "ACF"))
+
+fig_pacf_sq <- plot_ly(df_pacf_sq, x = ~lag, y = ~pacf, type = 'bar', name = 'PACF',
+  marker = list(color = '#ff7f0e')) %>%
+  
+  add_segments(x = min(df_pacf_sq$lag), xend = max(df_pacf_sq$lag), y = ci, yend = ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  add_segments(x = min(df_pacf_sq$lag), xend = max(df_pacf_sq$lag), y = -ci, yend = -ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  layout(yaxis = list(title = "PACF"))
+
+subplot(fig_acf_sq, fig_pacf_sq, nrows = 1, margin = 0.05, titleY = TRUE) %>%
+  layout(title = "Squared Returns: Autocorrelation & Partial Autocorrelation",
+  autosize = FALSE,
+  width = 1000,
+  height = 550,
+  margin = list(l = 50, r = 20, b = 40, t = 30, pad = 4) 
+)
+```
+
+### Absolute Returns {.smaller}
+
+```{r}
+#| label: acf-pacf-absolute
+#| fig-width: 16
+#| fig-height: 6
+#| out-width: "100%"
+
+
+acf_abs <- acf(log_returns$Abs, plot = FALSE, lag.max = 30)
+pacf_abs <- pacf(log_returns$Abs, plot = FALSE, lag.max = 30)
+
+ci <- qnorm((1 + 0.95)/2)/sqrt(length(log_returns$Abs))
+
+df_acf_abs <- data.frame(
+  lag = as.numeric(acf_abs$lag)[-1],
+  acf = as.numeric(acf_abs$acf)[-1])
+
+df_pacf_abs <- data.frame(
+  lag = as.numeric(pacf_abs$lag),
+  pacf = as.numeric(pacf_abs$acf))
+
+fig_acf_abs <- plot_ly(df_acf_abs, x = ~lag, y = ~acf, type = 'bar', name = 'ACF',
+  marker = list(color = '#1f77b4')) %>%
+  
+  add_segments(x = min(df_acf_abs$lag), xend = max(df_acf_abs$lag), y = ci, yend = ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  add_segments(x = min(df_acf_abs$lag), xend = max(df_acf_abs$lag), y = -ci, yend = -ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  layout(yaxis = list(title = "ACF"))
+
+fig_pacf_abs <- plot_ly(df_pacf_abs, x = ~lag, y = ~pacf, type = 'bar', name = 'PACF',
+  marker = list(color = '#ff7f0e')) %>%
+  
+  add_segments(x = min(df_pacf_abs$lag), xend = max(df_pacf_abs$lag), y = ci, yend = ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  add_segments(x = min(df_pacf_abs$lag), xend = max(df_pacf_abs$lag), y = -ci, yend = -ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  layout(yaxis = list(title = "PACF"))
+
+subplot(fig_acf_abs, fig_pacf_abs, nrows = 1, margin = 0.05, titleY = TRUE) %>%
+  layout(title = "Absolute Returns: Autocorrelation & Partial Autocorrelation",
+  autosize = FALSE,
+  width = 1000,
+  height = 550,
+  margin = list(l = 50, r = 20, b = 40, t = 30, pad = 4) 
+)
+```
+
+:::
+
+## Testing for ARCH Effects and Asymmetry {.smaller}
+
+::: {.panel-tabset}
+
+### ARCH Effects {.smaller}
+```{r}
+#| label: arch-lm-only
+
+arma_fit <- Arima(log_returns$LogReturns, order = c(1,0,1))
+residuals_arma <- residuals(arma_fit)
+
+lags_to_test <- c(5, 10, 20)
+
+run_arch_lm <- function(lag_val) {  
+  lm_test <- ArchTest(residuals_arma, lags = lag_val)
+  
+  return(data.frame(
+    Lag = lag_val,
+    Statistic = lm_test$statistic,
+    P_Value = lm_test$p.value
+  ))
+}
+
+arch_results <- do.call(rbind, lapply(lags_to_test, run_arch_lm))
+
+arch_display <- arch_results %>%
+  mutate(
+    Conclusion = ifelse(P_Value < 0.05, "Reject H0", "Fail to Reject"),
+    P_Value = format.pval(P_Value, digits = 3, eps = 0.001)
+  )
+
+knitr::kable(arch_display,
+  caption = "Engle's ARCH-LM Test for Volatility Clustering",
+  align = "c", row.names = FALSE)
+```
+
+### Leverage Effects {.smaller}
+
+```{r}
+#| label: leverage-effect-tests
+
+spec_std <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model = list(armaOrder = c(1, 1), include.mean = TRUE),
+  distribution.model = "std"
+)
+
+fit_std <- ugarchfit(spec = spec_std, data = log_returns$LogReturns)
+engle_test <- signbias(fit_std)
+
+engle_df <- data.frame(
+  Test = rownames(engle_test),
+  t_value = engle_test[, 1],
+  Prob = engle_test[, 2],
+  Result = ifelse(engle_test[, 2] < 0.05, "Asymmetry", "Symmetry")
+)
+
+engle_df$Prob <- format.pval(engle_df$Prob, digits = 3, eps = 0.001)
+
+knitr::kable(engle_df, 
+  digits = 4, 
+  caption = "Engle-Ng Tests for Asymmetry (Leverage Effect)",
+  row.names = FALSE,
+  align = "c")
+```
+
+:::
+
+## Forecast: plot {.smaller}
+
+```{r}
+#| label: setup-garch-forecast
+#| message: false
+#| warning: false
+
+n_total <- nrow(log_returns)
+n_train <- floor(0.80 * n_total)
+n_test  <- n_total - n_train
+
+common_mean <- list(armaOrder = c(1, 1), include.mean = TRUE)
+common_dist <- "std"
+
+spec_std <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)), 
+  mean.model = common_mean, distribution.model = common_dist)
+
+spec_gjr <- ugarchspec(
+  variance.model = list(model = "gjrGARCH", garchOrder = c(1, 1)), 
+  mean.model = common_mean, distribution.model = common_dist)
+
+spec_egarch <- ugarchspec(
+  variance.model = list(model = "eGARCH", garchOrder = c(1, 1)), 
+  mean.model = common_mean, distribution.model = common_dist)
+
+roll_std <- ugarchroll(
+  spec_std, data = log_returns$LogReturns, n.ahead = 1, 
+  n.start = n_train, refit.every = 50, refit.window = "moving", solver = "hybrid")
+
+roll_gjr <- ugarchroll(
+  spec_gjr, data = log_returns$LogReturns, n.ahead = 1, 
+  n.start = n_train, refit.every = 50, refit.window = "moving", solver = "hybrid")
+
+roll_egarch <- ugarchroll(
+  spec_egarch, data = log_returns$LogReturns, n.ahead = 1, 
+  n.start = n_train, refit.every = 50, refit.window = "moving", solver = "hybrid")
+```
+
+```{r}
+#| label: plot-vol-unified
+#| fig-width: 16
+#| fig-height: 6
+#| out-width: "100%"
+
+
+df_plot <- as.data.frame(roll_egarch)
+
+df_plot$Date <- log_returns$Date[(n_train + 1):n_total]
+df_plot$AbsReturn <- abs(df_plot$Realized)
+df_plot$Sigma_EGARCH <- df_plot$Sigma
+df_plot$Sigma_GJR <- as.data.frame(roll_gjr)$Sigma
+df_plot$Sigma_STD <- as.data.frame(roll_std)$Sigma
+
+fig_unified <- plot_ly(data = df_plot, x = ~Date) %>%
+  
+  add_bars(y = ~AbsReturn, name = 'Abs Returns (|r|)', 
+  marker = list(color = 'lightgrey'), opacity = 0.5) %>%
+  
+  add_lines(y = ~Sigma_STD, name = 'sGARCH',
+  line = list(color = 'green', width = 1.5)) %>%
+  
+  add_lines(y = ~Sigma_GJR, name = 'GJR-GARCH',
+  line = list(color = 'steelblue', width = 1.5)) %>%
+  
+  add_lines(y = ~Sigma_EGARCH, name = 'E-GARCH',
+  line = list(color = 'darkorange', width = 1.5)) %>%
+  
+  layout(
+    title = "Volatility Forecast Comparison (Refit Window: 50 Days)",
+    yaxis = list(title = "Volatility (Sigma)"),
+    xaxis = list(title = "Date"),
+    legend = list(orientation = "h", x = 0.1, y = -0.2),
+    barmode = "overlay",
+    hovermode = "x unified",
+    autosize = FALSE,
+    width = 1000,
+    height = 550,
+    margin = list(l = 50, r = 20, b = 40, t = 30, pad = 4)
+  )
+
+fig_unified
+```
+
+## Forecast: metrics {.smaller}
+
+```{r}
+#| label: vol-forecast-validation
+
+calc_vol_metrics <- function(roll_obj, name) {
+  df <- as.data.frame(roll_obj)
+  actual_var <- df$Realized^2
+  pred_var   <- df$Sigma^2
+  
+  rmse <- sqrt(mean((actual_var - pred_var)^2))
+  qlike <- mean(log(pred_var) + (actual_var / pred_var))
+  
+  return(c(Model = name, RMSE = rmse, QLIKE = qlike))
+}
+
+m_std <- calc_vol_metrics(roll_std, "sGARCH(1,1)")
+m_gjr <- calc_vol_metrics(roll_gjr, "GJR-GARCH(1,1)")
+m_eg <- calc_vol_metrics(roll_egarch, "E-GARCH(1,1)")
+
+vol_val_table <- data.frame(rbind(m_std, m_gjr, m_eg))
+vol_val_table$RMSE <- as.numeric(vol_val_table$RMSE)
+vol_val_table$QLIKE <- as.numeric(vol_val_table$QLIKE)
+vol_val_table <- vol_val_table[order(vol_val_table$QLIKE), ]
+
+datatable(vol_val_table, options = list(dom = 't'), rownames = FALSE) %>%
+  formatRound(columns = c('RMSE', 'QLIKE'), digits = 5)
+```
+
+## Value at Risk (VaR) {.smaller}
+
+```{r}
+#| label: var-calculation
+#| fig-width: 16
+#| fig-height: 6
+#| out-width: "100%"
+
+sigma_t <- sigma(fit_std)
+mu_t    <- fitted(fit_std)
+shape_param <- coef(fit_std)["shape"]
+
+q_05 <- qdist(distribution = "std", p = 0.05, shape = shape_param)
+q_01 <- qdist(distribution = "std", p = 0.01, shape = shape_param)
+
+VaR_95 <- mu_t + sigma_t * q_05
+VaR_99 <- mu_t + sigma_t * q_01
+
+df_risk <- data.frame(
+  Date = log_returns$Date,
+  Returns = log_returns$LogReturns,
+  VaR_95 = as.numeric(VaR_95),
+  VaR_99 = as.numeric(VaR_99)
+)
+
+fig_var <- plot_ly(df_risk, x = ~Date)
+
+fig_var <- add_trace(
+  fig_var, y = ~Returns, type = 'scatter', mode = 'lines',
+  name = 'Log Returns', line = list(color = 'grey', width = 0.5, opacity = 0.5)
+)
+
+fig_var <- add_trace(
+  fig_var, y = ~VaR_95, type = 'scatter', mode = 'lines',
+  name = 'VaR 95% (sGARCH)', line = list(color = 'orange', width = 1.5)
+)
+
+fig_var <- add_trace(
+  fig_var, y = ~VaR_99, type = 'scatter', mode = 'lines',
+  name = 'VaR 99% (sGARCH)', line = list(color = 'darkred', width = 1.5)
+)
+
+fig_var <- layout(
+  fig_var,
+  title = "Risk Management: ASML Returns vs Dynamic VaR (sGARCH)",
+  yaxis = list(title = "Log Return"),
+  xaxis = list(title = "Date"),
+  legend = list(orientation = "h", x = 0.1, y = -0.2),
+  autosize = FALSE,
+  width = 1000,
+  height = 550,
+  margin = list(l = 50, r = 20, b = 40, t = 30, pad = 4)
+)
+
+fig_var
+```
+
+#  {.center}
+
+::: {.r-fit-text}
+Thanks!
+:::
+
+<br>
+
+**Author:** Daniele Tambone

@@ -10,3 +10,6 @@ library(webshot2) # For saving plotly plots as images
 
 library(forecast)
 library(lmtest)
+
+library(rugarch)
+library(dplyr)

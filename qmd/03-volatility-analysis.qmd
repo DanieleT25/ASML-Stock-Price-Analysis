@@ -1,1 +1,533 @@
-# Volatility analysis
+---
+format: html
+execute:
+  fig-width: 7
+  fig-height: 4
+knitr:
+  opts_chunk:
+    out.width: "100%"
+---
+
+# Volatility Analysis
+
+```{r}
+#| label: setup
+#| include: false
+
+source(here::here("_setup.R"))
+asml <- readRDS(here::here("data", "asml_data.rds"))
+
+log_ret_vec <- diff(log(asml$ASML.Adjusted))
+log_ret_vec <- log_ret_vec[is.finite(log_ret_vec)]
+
+log_returns <- data.frame(
+  Date = asml$Date[-1],
+  LogReturns = as.numeric(log_ret_vec),
+  Squared = as.numeric(log_ret_vec)^2,
+  Abs = abs(as.numeric(log_ret_vec))
+)
+```
+
+In the previous chapter, we established that ASML returns exhibit a conditional mean behavior closely resembling a Random Walk, making directional forecasting ineffective. However, financial time series are characterized by a "stylized fact" known as **volatility clustering**: large changes tend to be followed by large changes, and small changes by small changes. This implies that while the *sign* of the return is unpredictable, its *magnitude* (risk) follows a recognizable pattern.
+
+The objective of this chapter is to model and forecast the conditional variance to quantify the risk associated with the asset. To achieve this, we adopt a structured modeling framework:
+
+1. **Detection of ARCH Effects:** We verify the presence of conditional heteroskedasticity through the analysis of squared returns' autocorrelation (**ACF**) and formal statistical tests such as the **ARCH-LM Test**.
+2. **Asymmetry Testing:** We investigate whether the volatility reacts differently to positive versus negative shocks (leverage effect) using the **Sign Bias Test**, **Negative Size Bias Test**, **Positive Size Bias Test** and **Joint Effect**.
+3. **Model Estimation & Selection:** We estimate and compare three classes of models to capture different volatility dynamics: **GARCH (Standard)** and  **GJR-GARCH & E-GARCH**.
+4. **Forecasting & Evaluation:** We assess the predictive power of the models using error metrics suitable for volatility (e.g., **RMSE** and **QLIKE**) and a visual comparison of the estimated conditional variance over time.
+5. **Risk Management Application:** Finally, we translate the volatility forecasts into a practical risk metric by computing and plotting the **Value at Risk (VaR)**, a standard tool for quantifying potential losses in extreme market scenarios.
+
+
+## Exploratory Volatility Analysis
+
+Let's conduct a visual inspection of the squared log-returns $(r^2_t)$ and absolute log-returns $(|r_t|)$, while raw returns typically show no correlation (as established in the previous chapter), their squared or absolute versions often exhibit strong persistence.
+
+::: {.panel-tabset}
+
+### Squared Returns
+```{r}
+#| label: plot-squared-returns
+#| fig-cap: "ASML Squared Daily Log-Returns"
+
+fig_sq <- plot_ly(data = log_returns, x = ~Date, y = ~Squared, type = 'scatter',
+  mode = 'lines', name = 'Squared Returns', line = list(color = 'darkred', width = 1))
+
+fig_sq <- layout(
+  fig_sq,
+  title = "ASML Squared Log-Returns",
+  xaxis = list(title = "Date"),
+  yaxis = list(title = "Squared Log Return"),
+  shapes = list(
+    list(
+      type = "line",
+      x0 = min(log_returns$Date),
+      x1 = max(log_returns$Date),
+      y0 = 0, 
+      y1 = 0,
+      line = list(color = "black", width = 1)
+    )
+  )
+)
+
+fig_sq
+```
+
+```{r}
+#| label: acf-pacf-squared
+#| fig-cap: "Squared Returns ACF and PACF"
+#| message: false
+
+acf_sq <- acf(log_returns$Squared, plot = FALSE, lag.max = 30)
+pacf_sq <- pacf(log_returns$Squared, plot = FALSE, lag.max = 30)
+
+ci <- qnorm((1 + 0.95)/2)/sqrt(length(log_returns$Squared))
+
+df_acf_sq <- data.frame(
+  lag = as.numeric(acf_sq$lag)[-1],
+  acf = as.numeric(acf_sq$acf)[-1])
+
+df_pacf_sq <- data.frame(
+  lag = as.numeric(pacf_sq$lag),
+  pacf = as.numeric(pacf_sq$acf))
+
+fig_acf_sq <- plot_ly(df_acf_sq, x = ~lag, y = ~acf, type = 'bar', name = 'ACF',
+  marker = list(color = '#1f77b4')) %>%
+  
+  add_segments(x = min(df_acf_sq$lag), xend = max(df_acf_sq$lag), y = ci, yend = ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  add_segments(x = min(df_acf_sq$lag), xend = max(df_acf_sq$lag), y = -ci, yend = -ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  layout(yaxis = list(title = "ACF"))
+
+fig_pacf_sq <- plot_ly(df_pacf_sq, x = ~lag, y = ~pacf, type = 'bar', name = 'PACF',
+  marker = list(color = '#ff7f0e')) %>%
+  
+  add_segments(x = min(df_pacf_sq$lag), xend = max(df_pacf_sq$lag), y = ci, yend = ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  add_segments(x = min(df_pacf_sq$lag), xend = max(df_pacf_sq$lag), y = -ci, yend = -ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  layout(yaxis = list(title = "PACF"))
+
+subplot(fig_acf_sq, fig_pacf_sq, nrows = 1, margin = 0.05, titleY = TRUE) %>%
+  layout(title = "Squared Returns: Autocorrelation & Partial Autocorrelation", 
+  margin = list(t = 50))
+```
+
+### Absolute Returns
+```{r}
+#| label: plot-absolute-value-returns
+#| fig-cap: "ASML Absolute Daily Log-Returns "
+#| 
+fig_sq <- plot_ly(data = log_returns, x = ~Date, y = ~Abs, type = 'scatter',
+  mode = 'lines', name = 'Absolute Returns', line = list(color = 'darkred', width = 1))
+
+fig_sq <- layout(
+  fig_sq,
+  title = "ASML Absolute Log-Returns",
+  xaxis = list(title = "Date"),
+  yaxis = list(title = "Absolute value Log Return"),
+  shapes = list(
+    list(
+      type = "line",
+      x0 = min(log_returns$Date),
+      x1 = max(log_returns$Date),
+      y0 = 0, 
+      y1 = 0,
+      line = list(color = "black", width = 1)
+    )
+  )
+)
+
+fig_sq
+```
+
+
+```{r}
+#| label: acf-pacf-absolute
+#| fig-cap: "Absolute Returns ACF and PACF"
+#| message: false
+
+
+acf_abs <- acf(log_returns$Abs, plot = FALSE, lag.max = 30)
+pacf_abs <- pacf(log_returns$Abs, plot = FALSE, lag.max = 30)
+
+ci <- qnorm((1 + 0.95)/2)/sqrt(length(log_returns$Abs))
+
+df_acf_abs <- data.frame(
+  lag = as.numeric(acf_abs$lag)[-1],
+  acf = as.numeric(acf_abs$acf)[-1])
+
+df_pacf_abs <- data.frame(
+  lag = as.numeric(pacf_abs$lag),
+  pacf = as.numeric(pacf_abs$acf))
+
+fig_acf_abs <- plot_ly(df_acf_abs, x = ~lag, y = ~acf, type = 'bar', name = 'ACF',
+  marker = list(color = '#1f77b4')) %>%
+  
+  add_segments(x = min(df_acf_abs$lag), xend = max(df_acf_abs$lag), y = ci, yend = ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  add_segments(x = min(df_acf_abs$lag), xend = max(df_acf_abs$lag), y = -ci, yend = -ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  layout(yaxis = list(title = "ACF"))
+
+fig_pacf_abs <- plot_ly(df_pacf_abs, x = ~lag, y = ~pacf, type = 'bar', name = 'PACF',
+  marker = list(color = '#ff7f0e')) %>%
+  
+  add_segments(x = min(df_pacf_abs$lag), xend = max(df_pacf_abs$lag), y = ci, yend = ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  add_segments(x = min(df_pacf_abs$lag), xend = max(df_pacf_abs$lag), y = -ci, yend = -ci, 
+  line = list(color = 'red', dash = 'dash', width = 1), showlegend = FALSE) %>%
+  
+  layout(yaxis = list(title = "PACF"))
+
+subplot(fig_acf_abs, fig_pacf_abs, nrows = 1, margin = 0.05, titleY = TRUE) %>%
+  layout(title = "Absolute Returns: Autocorrelation & Partial Autocorrelation",
+  margin = list(t = 50))
+```
+
+:::
+
+1. **Volatility Clustering:** The time series plots of both Squared Log-Returns and Absolute Log-Returns clearly illustrate the phenomenon of volatility clustering. We observe distinct periods of high volatility (large spikes) followed by periods of relative calm. This intermittent bursting behavior violates the assumption of constant variance (homoskedasticity) required by standard linear models.
+
+2. **Persistence (Long Memory):** The analysis of the correlograms provides further evidence. Unlike the ACF of raw returns, the ACF of Squared Returns displays significant positive autocorrelation that decays very slowly. A similar, perhaps even clearer, pattern of slow decay is visible in the ACF of Absolute Returns. This "long memory" indicates that the magnitude of today's shock has a strong predictive power for future volatility, justifying the use of GARCH-type models.
+
+## Formal Testing for ARCH Effects and Asymmetry
+While the graphical analysis provides strong intuitive evidence of conditional heteroskedasticity, we must validate these observations using rigorous statistical procedures. Furthermore, visual inspection alone cannot quantify whether the volatility reacts symmetrically to news or if there is a "leverage effect" (where negative returns increase volatility more than positive ones).
+
+To address this, we perform the following battery of diagnostic tests:
+
+1. **ARCH-LM Test:** To formally test the null hypothesis of no ARCH effects in the residuals up to a specified lag.
+2. **Asymmetry Tests:** useful for checking the presence of asymmetric volatility (leverage effects)
+
+::: {.panel-tabset}
+
+### ARCH Effects
+```{r}
+#| label: arch-lm-only
+#| message: false
+#| warning: false
+
+arma_fit <- Arima(log_returns$LogReturns, order = c(1,0,1))
+residuals_arma <- residuals(arma_fit)
+
+lags_to_test <- c(5, 10, 20)
+
+run_arch_lm <- function(lag_val) {  
+  lm_test <- ArchTest(residuals_arma, lags = lag_val)
+  
+  return(data.frame(
+    Lag = lag_val,
+    Statistic = lm_test$statistic,
+    P_Value = lm_test$p.value
+  ))
+}
+
+arch_results <- do.call(rbind, lapply(lags_to_test, run_arch_lm))
+
+arch_display <- arch_results %>%
+  mutate(
+    Conclusion = ifelse(P_Value < 0.05, "Reject H0", "Fail to Reject"),
+    P_Value = format.pval(P_Value, digits = 3, eps = 0.001)
+  )
+
+knitr::kable(arch_display,
+  caption = "Engle's ARCH-LM Test for Volatility Clustering",
+  align = "c", row.names = FALSE)
+```
+
+### Leverage Effects
+
+```{r}
+#| label: leverage-effect-tests
+#| message: false
+#| warning: false
+
+spec_std <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model = list(armaOrder = c(1, 1), include.mean = TRUE),
+  distribution.model = "std"
+)
+
+fit_std <- ugarchfit(spec = spec_std, data = log_returns$LogReturns)
+engle_test <- signbias(fit_std)
+
+engle_df <- data.frame(
+  Test = rownames(engle_test),
+  t_value = engle_test[, 1],
+  Prob = engle_test[, 2],
+  Result = ifelse(engle_test[, 2] < 0.05, "Asymmetry", "Symmetry")
+)
+
+engle_df$Prob <- format.pval(engle_df$Prob, digits = 3, eps = 0.001)
+
+knitr::kable(engle_df, 
+  digits = 4, 
+  caption = "Engle-Ng Tests for Asymmetry (Leverage Effect)",
+  row.names = FALSE,
+  align = "c")
+```
+
+:::
+
+
+The preliminary diagnostic phase has already established the presence of significant conditional heteroskedasticity, as the **ARCH-LM test strongly rejected the null hypothesis** of constant variance. However, regarding the nature of this volatility, the results diverge from the standard market behavior. Contrary to the stylized facts of broad equity indices—where the Leverage Effect typically induces higher volatility during market downturns—the **Engle-Ng tests for ASML indicate a symmetric volatility response** ($H_0$ is not rejected). This suggests that for ASML, large positive shocks (rallies) generate volatility levels comparable to negative shocks. This behavior is often observed in high-growth technology stocks, where upside volatility is driven by speculative trading and aggressive repricing during expansion cycles.Despite the statistical lack of significant asymmetry, we will proceed with the estimation of asymmetric models (**GJR-GARCH** and **E-GARCH**) alongside the standard specification. This ensures a comprehensive model comparison based on Information Criteria (AIC/BIC), verifying whether these models might still offer a superior fit due to their flexibility in handling the error distribution.
+
+
+## Models
+
+Given the evidence of volatility clustering and the potential for non-normal error distributions, we estimate three distinct volatility specifications to identify the model that best describes the data generating process of ASML returns.
+
+We compare the following models:
+
+1. **Standard GARCH (sGARCH):** Assumes symmetric response to shocks.
+2. **GJR-GARCH:** Allows for asymmetric response (leverage effect) targeting the variance directly.
+3. **Exponential GARCH (E-GARCH):** Models the logarithm of variance, allowing for asymmetry without imposing positivity constraints on coefficients.
+
+To ensure robustness and account for the "fat tails" observed in the preliminary analysis (Jarque-Bera test), all models are estimated using a **Student-t distribution** for the innovation process, coupled with the **ARMA(1,1)** mean equation identified in the previous chapter.
+
+We rely on **Information Criteria (AIC and BIC)** for model selection, where lower values indicate a better trade-off between goodness-of-fit and model parsimony.
+
+```{r}
+#| label: model-estimation
+#| fig-cap: "Comparison between Symmetric and Asymmetric GARCH"
+#| message: false
+#| warning: false
+
+
+common_mean <- list(armaOrder = c(1, 1), include.mean = TRUE)
+common_dist <- "std" 
+
+spec_std <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model = common_mean,
+  distribution.model = common_dist
+)
+
+spec_gjr <- ugarchspec(
+  variance.model = list(model = "gjrGARCH", garchOrder = c(1, 1)),
+  mean.model = common_mean,
+  distribution.model = common_dist
+)
+
+spec_egarch <- ugarchspec(
+  variance.model = list(model = "eGARCH", garchOrder = c(1, 1)),
+  mean.model = common_mean,
+  distribution.model = common_dist
+)
+
+fit_std    <- ugarchfit(spec_std, data = log_returns$LogReturns, solver = "hybrid")
+fit_gjr    <- ugarchfit(spec_gjr, data = log_returns$LogReturns, solver = "hybrid")
+fit_egarch <- ugarchfit(spec_egarch, data = log_returns$LogReturns, solver = "hybrid")
+
+criteria_df <- data.frame(
+  Model = c("sGARCH(1,1)", "GJR-GARCH(1,1)", "E-GARCH(1,1)"),
+  AIC = c(infocriteria(fit_std)[1], infocriteria(fit_gjr)[1], infocriteria(fit_egarch)[1]),
+  BIC = c(infocriteria(fit_std)[2], infocriteria(fit_gjr)[2], infocriteria(fit_egarch)[2])
+)
+
+criteria_df <- criteria_df[order(criteria_df$BIC), ]
+
+knitr::kable(criteria_df, 
+  digits = 4, 
+  caption = "Model Selection: AIC and BIC Comparison",
+  row.names = FALSE,
+  align = "c")
+```
+
+## Forecast
+Since the information criteria (AIC and BIC) provide an in-sample assessment, we proceed with an Out-of-Sample validation to test the actual predictive capacity on data not used for estimation.
+
+We split the time series into two subsets:
+
+* **Training Set ($80\%$)**: Used to estimate the GARCH parameters.
+* **Test Set ($20\%$)**: Used to compare volatility forecasts against the proxy of realized volatility.
+
+```{r}
+#| label: setup-garch-forecast
+#| message: false
+#| warning: false
+
+n_total <- nrow(log_returns)
+n_train <- floor(0.80 * n_total)
+n_test  <- n_total - n_train
+
+common_mean <- list(armaOrder = c(1, 1), include.mean = TRUE)
+common_dist <- "std"
+
+spec_std <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)), 
+  mean.model = common_mean, distribution.model = common_dist)
+
+spec_gjr <- ugarchspec(
+  variance.model = list(model = "gjrGARCH", garchOrder = c(1, 1)), 
+  mean.model = common_mean, distribution.model = common_dist)
+
+spec_egarch <- ugarchspec(
+  variance.model = list(model = "eGARCH", garchOrder = c(1, 1)), 
+  mean.model = common_mean, distribution.model = common_dist)
+
+roll_std <- ugarchroll(
+  spec_std, data = log_returns$LogReturns, n.ahead = 1, 
+  n.start = n_train, refit.every = 50, refit.window = "moving", solver = "hybrid")
+
+roll_gjr <- ugarchroll(
+  spec_gjr, data = log_returns$LogReturns, n.ahead = 1, 
+  n.start = n_train, refit.every = 50, refit.window = "moving", solver = "hybrid")
+
+roll_egarch <- ugarchroll(
+  spec_egarch, data = log_returns$LogReturns, n.ahead = 1, 
+  n.start = n_train, refit.every = 50, refit.window = "moving", solver = "hybrid")
+```
+
+The following plot displays the estimated conditional volatility $(\hat{\sigma}_t)$ generated by the sGARCH, GJR-GARCH and E-GARCH model:
+
+::: {.callout-note}
+Unlike price forecasting, volatility is **latent** (not directly observable). Therefore, in the following chart, we visually compare the forecasted standard deviation $\hat{\sigma}_t$ (colored lines) against the **Absolute Returns** $|r_t|$ (grey bars). While noisy, absolute returns serve as a standard unbiased proxy for actual market turbulence.
+:::
+
+```{r}
+#| label: plot-vol-unified
+#| fig-cap: "Volatility Forecast Comparison: sGARCH vs GJR-GARCH vs E-GARCH"
+
+
+df_plot <- as.data.frame(roll_egarch)
+
+df_plot$Date <- log_returns$Date[(n_train + 1):n_total]
+df_plot$AbsReturn <- abs(df_plot$Realized)
+df_plot$Sigma_EGARCH <- df_plot$Sigma
+df_plot$Sigma_GJR <- as.data.frame(roll_gjr)$Sigma
+df_plot$Sigma_STD <- as.data.frame(roll_std)$Sigma
+
+fig_unified <- plot_ly(data = df_plot, x = ~Date) %>%
+  
+  add_bars(y = ~AbsReturn, name = 'Abs Returns (|r|)', 
+  marker = list(color = 'lightgrey'), opacity = 0.5) %>%
+  
+  add_lines(y = ~Sigma_STD, name = 'sGARCH',
+  line = list(color = 'green', width = 1.5)) %>%
+  
+  add_lines(y = ~Sigma_GJR, name = 'GJR-GARCH',
+  line = list(color = 'steelblue', width = 1.5)) %>%
+  
+  add_lines(y = ~Sigma_EGARCH, name = 'E-GARCH',
+  line = list(color = 'darkorange', width = 1.5)) %>%
+  
+  layout(
+    title = "Volatility Forecast Comparison (Refit Window: 50 Days)",
+    yaxis = list(title = "Volatility (Sigma)"),
+    xaxis = list(title = "Date"),
+    legend = list(orientation = "h", x = 0.1, y = -0.2),
+    barmode = "overlay",
+    hovermode = "x unified"
+  )
+
+fig_unified
+```
+
+
+We evaluate the predictive performance using two loss functions, utilizing squared returns $(r_t^2)$ as the proxy for latent variance:
+
+* **RMSE (Root Mean Squared Error):** Standard symmetric metric.
+* **QLIKE (Quasi-Likelihood):** Asymmetric loss function that penalizes under-prediction of risk more heavily. **This is the preferred metric for volatility model selection.**
+
+```{r}
+#| label: vol-forecast-validation
+
+calc_vol_metrics <- function(roll_obj, name) {
+  df <- as.data.frame(roll_obj)
+  actual_var <- df$Realized^2
+  pred_var   <- df$Sigma^2
+  
+  rmse <- sqrt(mean((actual_var - pred_var)^2))
+  qlike <- mean(log(pred_var) + (actual_var / pred_var))
+  
+  return(c(Model = name, RMSE = rmse, QLIKE = qlike))
+}
+
+m_std <- calc_vol_metrics(roll_std, "sGARCH(1,1)")
+m_gjr <- calc_vol_metrics(roll_gjr, "GJR-GARCH(1,1)")
+m_eg <- calc_vol_metrics(roll_egarch, "E-GARCH(1,1)")
+
+vol_val_table <- data.frame(rbind(m_std, m_gjr, m_eg))
+vol_val_table$RMSE <- as.numeric(vol_val_table$RMSE)
+vol_val_table$QLIKE <- as.numeric(vol_val_table$QLIKE)
+vol_val_table <- vol_val_table[order(vol_val_table$QLIKE), ]
+
+datatable(vol_val_table, options = list(dom = 't'), rownames = FALSE) %>%
+  formatRound(columns = c('RMSE', 'QLIKE'), digits = 5)
+```
+
+## Conclusion
+
+The comprehensive analysis conducted in this chapter—spanning diagnostic tests, in-sample information criteria, and out-of-sample forecasting—provides a clear and robust picture of ASML's risk profile.
+
+The results confirm the standard stylized facts of financial time series regarding the presence of **volatility clustering**: the rejection of the null hypothesis in the **ARCH-LM test** proves that ASML's volatility is not constant but evolves dynamically over time.
+
+However, a distinct and insightful characteristic emerged regarding the *nature* of this volatility. Contrary to broad equity indices—where the "Leverage Effect" typically induces higher volatility during market downturns—our analysis highlights an **unusually low leverage effect**. This is supported by multiple converging evidences:
+
+1.  The **Engle-Ng diagnostic tests**, which failed to reject the hypothesis of symmetry.
+2.  The **Quantitative Performance Metrics**, where both in-sample Information Criteria (AIC/BIC) and Out-of-Sample forecast error measures (RMSE/QLIKE) **do not exhibit significant distinctions** across specifications. The complex asymmetric models (GJR and E-GARCH) failed to provide a substantial improvement over the standard benchmark, implying that the asymmetry component adds little explanatory power.
+
+This symmetric behavior, while atypical for the general market, is characteristic of **high-growth technology stocks**. For ASML, large positive shocks (rallies) generate volatility levels comparable to negative shocks (crashes), likely driven by speculative trading and aggressive repricing during expansion cycles.
+
+**Final Model Selection:**
+Given the negligible difference in performance metrics, we invoke the **Principle of Parsimony**  and select the **sGARCH(1,1) with Student-t distribution** as the optimal model. It offers the simplest and most robust representation of the data generating process, correctly capturing the fat tails and volatility clustering without overfitting a leverage effect that is not structurally significant.
+
+We conclude this analysis by visually translating the statistical estimates of the selected model into a practical Risk Management metric. The following chart displays the **Dynamic Value at Risk (VaR)**, showing the estimated thresholds for the maximum expected loss at 95% and 99% confidence levels.
+
+```{r}
+#| label: var-calculation
+#| fig-cap: "Value at Risk (VaR) In-Sample with sGARCH(1,1)"
+
+sigma_t <- sigma(fit_std)
+mu_t    <- fitted(fit_std)
+shape_param <- coef(fit_std)["shape"]
+
+q_05 <- qdist(distribution = "std", p = 0.05, shape = shape_param)
+q_01 <- qdist(distribution = "std", p = 0.01, shape = shape_param)
+
+VaR_95 <- mu_t + sigma_t * q_05
+VaR_99 <- mu_t + sigma_t * q_01
+
+df_risk <- data.frame(
+  Date = log_returns$Date,
+  Returns = log_returns$LogReturns,
+  VaR_95 = as.numeric(VaR_95),
+  VaR_99 = as.numeric(VaR_99)
+)
+
+fig_var <- plot_ly(df_risk, x = ~Date)
+
+fig_var <- add_trace(
+  fig_var, y = ~Returns, type = 'scatter', mode = 'lines',
+  name = 'Log Returns', line = list(color = 'grey', width = 0.5, opacity = 0.5)
+)
+
+fig_var <- add_trace(
+  fig_var, y = ~VaR_95, type = 'scatter', mode = 'lines',
+  name = 'VaR 95% (sGARCH)', line = list(color = 'orange', width = 1.5)
+)
+
+fig_var <- add_trace(
+  fig_var, y = ~VaR_99, type = 'scatter', mode = 'lines',
+  name = 'VaR 99% (sGARCH)', line = list(color = 'darkred', width = 1.5)
+)
+
+fig_var <- layout(
+  fig_var,
+  title = "Risk Management: ASML Returns vs Dynamic VaR (sGARCH)",
+  yaxis = list(title = "Log Return"),
+  xaxis = list(title = "Date"),
+  legend = list(orientation = "h", x = 0.1, y = -0.2)
+)
+
+fig_var
+```

@@ -1,6 +1,3 @@
-> [!warning]
-> **Status**: Work in Progress (Active Development)
-
 # ASML Stock Price Analysis
 
 _Project for "Time series analysis for economic and financial data" course of Data Science_
